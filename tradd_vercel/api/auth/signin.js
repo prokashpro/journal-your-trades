@@ -1,5 +1,5 @@
 // api/auth/signin.js — POST /api/auth/signin
-const { supabaseAdmin } = require('../../lib/supabase');
+const { supabase, supabaseAdmin } = require('../../lib/supabase');
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -16,7 +16,7 @@ module.exports = async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
   try {
-    const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return res.status(401).json({ error: 'Invalid email or password' });
 
     const { data: profile } = await supabaseAdmin
