@@ -475,25 +475,35 @@ input[type=color].form-input{padding:4px 6px;height:40px;cursor:pointer}
     if (!email || !pass) { err.textContent='Enter email and password'; err.style.display='block'; return; }
     btn.textContent = 'Signing in...'; btn.disabled = true; err.style.display='none';
     try {
+      // Step 1: Sign in to get token
       const r = await fetch('/api/auth/signin', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ email, password: pass })
       });
       const d = await r.json();
-      if (r.ok && d.token) {
-        localStorage.setItem('tf_access_token', d.token);
-        if (d.user) localStorage.setItem('tf_session', JSON.stringify({...d.user, ts:Date.now()}));
-        if (d.user?.role !== 'admin') {
-          err.textContent = 'Your account does not have admin role. Run the SQL: UPDATE public.profiles SET role=\'admin\' WHERE email=\''+email+'\';';
-          err.style.display='block'; btn.textContent='Sign In & Enter Admin'; btn.disabled=false; return;
-        }
-        document.getElementById('admin-gate').style.display='none';
-      } else {
+      if (!r.ok || !d.token) {
         err.textContent = d.error || 'Sign in failed. Check your email and password.';
-        err.style.display='block';
+        err.style.display='block'; btn.textContent='Sign In & Enter Admin'; btn.disabled=false; return;
       }
+      // Save token
+      localStorage.setItem('tf_access_token', d.token);
+      if (d.user) localStorage.setItem('tf_session', JSON.stringify({...d.user, ts:Date.now()}));
+
+      // Step 2: Verify role via /api/auth/me (more reliable than signin response)
+      const me = await fetch('/api/auth/me', {
+        headers: { 'Authorization': 'Bearer ' + d.token }
+      });
+      const meData = await me.json();
+      const role = meData.role || d.user?.role || 'user';
+
+      if (role !== 'admin') {
+        err.textContent = 'Signed in ✓ but role is "' + role + '" not "admin". Run this SQL in Supabase: UPDATE public.profiles SET role=\'admin\' WHERE email=\'' + email + '\';';
+        err.style.display='block'; btn.textContent='Sign In & Enter Admin'; btn.disabled=false; return;
+      }
+      // All good — enter admin
+      document.getElementById('admin-gate').style.display='none';
     } catch(e) {
-      err.textContent = 'Connection error. Make sure Supabase is connected.';
+      err.textContent = 'Connection error: ' + e.message;
       err.style.display='block';
     }
     btn.textContent='Sign In & Enter Admin'; btn.disabled=false;
