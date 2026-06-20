@@ -1,11 +1,10 @@
-// api/auth/google.js — POST /api/auth/google
-// Returns Supabase Google OAuth redirect URL
-const { supabase } = require('../../lib/supabase');
+// api/auth/logout.js — POST /api/auth/logout
+const { supabaseAdmin } = require('../../lib/supabase');
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
 }
 
 module.exports = async (req, res) => {
@@ -14,18 +13,20 @@ module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const redirectTo = process.env.SITE_URL
-      ? `${process.env.SITE_URL}/auth/callback`
-      : `https://journal-your-trades.vercel.app/auth/callback`;
+    // Extract token from Authorization header or cookie
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo }
-    });
+    if (token) {
+      // Sign out the user server-side via Supabase admin
+      await supabaseAdmin.auth.admin.signOut(token).catch(() => {});
+    }
 
-    if (error) return res.status(400).json({ error: error.message });
-    return res.status(200).json({ url: data.url });
+    // Clear session cookie
+    res.setHeader('Set-Cookie', 'tf_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0');
+    return res.status(200).json({ success: true });
   } catch (e) {
-    return res.status(500).json({ error: 'Google auth unavailable' });
+    // Always return 200 on logout — client should clear local state regardless
+    return res.status(200).json({ success: true });
   }
 };

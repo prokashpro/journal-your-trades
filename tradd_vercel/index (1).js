@@ -1,57 +1,59 @@
--- ═══════════════════════════════════════════════════════════
---  Journal Your Trades — Migration 002: Admin Panel Extras
---  Run AFTER 001_initial.sql in Supabase SQL Editor
---  Adds: site_config, feature_flags tables only
---  (profiles, trades, blog_posts, announcements already exist)
--- ═══════════════════════════════════════════════════════════
+// api/admin/users.js — GET all users (admin only)
+const { supabaseAdmin } = require('../../lib/supabase');
+const { verifyToken } = require('../../lib/auth');
 
--- ── Site Config (landing page settings: hero, theme, pricing, seo, nav) ──
-create table if not exists public.site_config (
-  key          text primary key,
-  value        jsonb not null default '{}',
-  updated_at   timestamptz default now(),
-  updated_by   uuid references public.profiles(id)
-);
+function cors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+}
 
-alter table public.site_config enable row level security;
+module.exports = async (req, res) => {
+  cors(res);
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
-create policy "Anyone can read site config"
-  on public.site_config for select using (true);
+  const user = await verifyToken(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-create policy "Admins can manage site config"
-  on public.site_config for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
+  const { data: profile } = await supabaseAdmin
+    .from('profiles').select('role').eq('id', user.id).single();
+  if (profile?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
--- ── Feature Flags ─────────────────────────────────────────
-create table if not exists public.feature_flags (
-  key          text primary key,
-  enabled      boolean default true,
-  updated_at   timestamptz default now()
-);
+  // Get profiles with trade stats
+  const { data: profiles, error } = await supabaseAdmin
+    .from('profiles')
+    .select('id, email, name, plan, role, created_at, updated_at')
+    .order('created_at', { ascending: false });
 
-alter table public.feature_flags enable row level security;
+  if (error) return res.status(500).json({ error: error.message });
 
-create policy "Anyone can read feature flags"
-  on public.feature_flags for select using (true);
+  // Get trade counts per user
+  const { data: tradeCounts } = await supabaseAdmin
+    .from('trades')
+    .select('user_id, pnl');
 
-create policy "Admins can manage feature flags"
-  on public.feature_flags for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
+  const statsMap = {};
+  (tradeCounts || []).forEach(t => {
+    if (!statsMap[t.user_id]) statsMap[t.user_id] = { count: 0, pnl: 0, wins: 0 };
+    statsMap[t.user_id].count++;
+    statsMap[t.user_id].pnl += parseFloat(t.pnl || 0);
+    if (parseFloat(t.pnl || 0) > 0) statsMap[t.user_id].wins++;
+  });
 
--- ── Seed default config values ────────────────────────────
-insert into public.site_config (key, value) values
-  ('hero', '{"title":"The market is the teacher.","subtitle":"Your journal is the textbook.","cta":"Start journaling free"}'),
-  ('theme', '{"accent":"#6366f1","accent2":"#8b5cf6","headFont":"Montserrat"}'),
-  ('pricing', '{"plans":[]}'),
-  ('seo', '{"title":"Journal Your Trades — AI-Powered Trading Journal","desc":"The AI-powered trading journal that finds your blind spots, tracks your edge, and helps you grow as a trader.","url":"https://journal-your-trades.vercel.app","og":""}'),
-  ('nav_links', '{"links":[]}'),
-  ('sections_config', '{"order":[]}'),
-  ('announcement_bar', '{"enabled":false}')
-on conflict (key) do nothing;
+  const users = (profiles || []).map(p => ({
+    id: p.id,
+    name: p.name || p.email?.split('@')[0] || 'User',
+    email: p.email,
+    plan: p.plan || 'free',
+    role: p.role || 'user',
+    createdAt: p.created_at,
+    trades: statsMap[p.id]?.count || 0,
+    pnl: statsMap[p.id]?.pnl || 0,
+    winRate: statsMap[p.id]?.count
+      ? Math.round((statsMap[p.id].wins / statsMap[p.id].count) * 100)
+      : 0
+  }));
 
--- ── IMPORTANT — make yourself an admin ────────────────────
--- 1. Sign up on your live site first (creates your profile row)
--- 2. Then run this with YOUR email:
--- update public.profiles set role = 'admin' where email = 'your-email@example.com';
+  return res.status(200).json({ users });
+};
