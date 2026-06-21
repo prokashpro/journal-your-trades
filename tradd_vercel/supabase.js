@@ -1,5 +1,5 @@
-// api/auth/logout.js — POST /api/auth/logout
-const { supabaseAdmin } = require('../../lib/supabase');
+// api/auth/signin.js — POST /api/auth/signin
+const { supabase, supabaseAdmin } = require('../../lib/supabase');
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -12,21 +12,27 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
   try {
-    // Extract token from Authorization header or cookie
-    const authHeader = req.headers['authorization'] || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return res.status(401).json({ error: 'Invalid email or password' });
 
-    if (token) {
-      // Sign out the user server-side via Supabase admin
-      await supabaseAdmin.auth.admin.signOut(token).catch(() => {});
-    }
+    const { data: profile } = await supabaseAdmin
+      .from('profiles').select('*').eq('id', data.user.id).single();
 
-    // Clear session cookie
-    res.setHeader('Set-Cookie', 'tf_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0');
-    return res.status(200).json({ success: true });
+    return res.status(200).json({
+      token: data.session.access_token,
+      user: {
+        id: data.user.id, email: data.user.email,
+        name: profile?.name || data.user.user_metadata?.name || email.split('@')[0],
+        plan: profile?.plan || 'free',
+        role: profile?.role || 'user'
+      }
+    });
   } catch (e) {
-    // Always return 200 on logout — client should clear local state regardless
-    return res.status(200).json({ success: true });
+    console.error('Signin error:', e);
+    return res.status(500).json({ error: 'Server error' });
   }
 };
