@@ -68,17 +68,9 @@
     {
       "src": "tradd_vercel/api/admin/users.js",
       "use": "@vercel/node"
-    },
-    {
-      "src": "tradd_vercel/api/test_admin.js",
-      "use": "@vercel/node"
     }
   ],
   "routes": [
-    {
-      "src": "/api/test_admin",
-      "dest": "tradd_vercel/api/test_admin.js"
-    },
     {
       "src": "/api/health",
       "dest": "tradd_vercel/api/health.js"
