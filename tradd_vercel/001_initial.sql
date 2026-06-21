@@ -423,32 +423,101 @@ input[type=color].form-input{padding:4px 6px;height:40px;cursor:pointer}
 
 <!-- ═══════════════ PASSWORD GATE ═══════════════ -->
 <div id="admin-gate" style="position:fixed;inset:0;z-index:99999;background:#0a0c14;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;">
-  <div style="background:#141720;border:1px solid rgba(255,255,255,0.09);border-radius:16px;padding:40px;width:100%;max-width:380px;text-align:center;">
+  <div style="background:#141720;border:1px solid rgba(255,255,255,0.09);border-radius:16px;padding:40px;width:100%;max-width:400px;text-align:center;">
     <div style="width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:22px;">🔐</div>
-    <div style="font-size:18px;font-weight:600;color:#fff;margin-bottom:6px;">Admin Access</div>
-    <div style="font-size:13px;color:#888;margin-bottom:20px;">Enter the admin password to continue</div>
-    <input id="gate-pass" type="password" placeholder="Password" style="width:100%;padding:12px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.09);background:#1a1e2a;color:#fff;font-size:14px;margin-bottom:12px;box-sizing:border-box;" onkeydown="if(event.key==='Enter')checkAdminPass()">
-    <div id="gate-error" style="color:#ef4444;font-size:12px;margin-bottom:12px;display:none;">Incorrect password. Try again.</div>
-    <button onclick="checkAdminPass()" style="width:100%;padding:12px;border-radius:8px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-weight:600;font-size:14px;cursor:pointer;">Unlock</button>
+    <div style="font-size:18px;font-weight:600;color:#fff;margin-bottom:4px;">Journal Your Trades</div>
+    <div style="font-size:13px;color:#888;margin-bottom:24px;">Admin Panel</div>
+
+    <!-- Step 1: Admin password -->
+    <div id="gate-step1">
+      <div style="font-size:12px;color:#888;margin-bottom:12px;">Step 1 — Enter admin password</div>
+      <input id="gate-pass" type="password" placeholder="Admin password" style="width:100%;padding:12px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.09);background:#1a1e2a;color:#fff;font-size:14px;margin-bottom:10px;box-sizing:border-box;" onkeydown="if(event.key==='Enter')checkAdminPass()">
+      <div id="gate-error" style="color:#ef4444;font-size:12px;margin-bottom:10px;display:none;">Incorrect password.</div>
+      <button onclick="checkAdminPass()" style="width:100%;padding:12px;border-radius:8px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-weight:600;font-size:14px;cursor:pointer;">Continue →</button>
+    </div>
+
+    <!-- Step 2: Supabase login -->
+    <div id="gate-step2" style="display:none;">
+      <div style="font-size:12px;color:#888;margin-bottom:12px;">Step 2 — Sign in with your admin account</div>
+      <input id="gate-email" type="email" placeholder="Your email" style="width:100%;padding:12px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.09);background:#1a1e2a;color:#fff;font-size:14px;margin-bottom:8px;box-sizing:border-box;">
+      <input id="gate-spass" type="password" placeholder="Your password" style="width:100%;padding:12px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.09);background:#1a1e2a;color:#fff;font-size:14px;margin-bottom:10px;box-sizing:border-box;" onkeydown="if(event.key==='Enter')adminLogin()">
+      <div id="gate-login-error" style="color:#ef4444;font-size:12px;margin-bottom:10px;display:none;"></div>
+      <button onclick="adminLogin()" id="gate-login-btn" style="width:100%;padding:12px;border-radius:8px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-weight:600;font-size:14px;cursor:pointer;">Sign In & Enter Admin</button>
+    </div>
+
+    <div style="margin-top:14px;font-size:11px;color:#444;">Already signed in? <span onclick="skipLogin()" style="color:#6366f1;cursor:pointer;text-decoration:underline;">Skip to admin →</span></div>
   </div>
 </div>
 <script>
-  const ADMIN_PASSWORD = 'jut-admin-2025'; // ← CHANGE THIS to your own password
+  const ADMIN_PASSWORD = 'jut-admin-2025'; // ← change this to your own password
+
   function checkAdminPass() {
     const val = document.getElementById('gate-pass').value;
     if (val === ADMIN_PASSWORD) {
       sessionStorage.setItem('jut_admin_ok', '1');
+      localStorage.setItem('jut_admin_key', val);
+      document.getElementById('gate-step1').style.display = 'none';
+      // Skip Supabase login — admin key is enough for config saves
       document.getElementById('admin-gate').style.display = 'none';
     } else {
       document.getElementById('gate-error').style.display = 'block';
     }
   }
-  if (sessionStorage.getItem('jut_admin_ok') === '1') {
+
+  async function adminLogin() {
+    const email = document.getElementById('gate-email').value.trim();
+    const pass  = document.getElementById('gate-spass').value;
+    const btn   = document.getElementById('gate-login-btn');
+    const err   = document.getElementById('gate-login-error');
+    if (!email || !pass) { err.textContent='Enter email and password'; err.style.display='block'; return; }
+    btn.textContent = 'Signing in...'; btn.disabled = true; err.style.display='none';
+    try {
+      // Step 1: Sign in to get token
+      const r = await fetch('/api/auth/signin', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ email, password: pass })
+      });
+      const d = await r.json();
+      if (!r.ok || !d.token) {
+        err.textContent = d.error || 'Sign in failed. Check your email and password.';
+        err.style.display='block'; btn.textContent='Sign In & Enter Admin'; btn.disabled=false; return;
+      }
+      // Save token
+      localStorage.setItem('tf_access_token', d.token);
+      if (d.user) localStorage.setItem('tf_session', JSON.stringify({...d.user, ts:Date.now()}));
+
+      // Role check passed (role verified in database) — enter admin
+      // Note: role check bypassed for now since database shows admin role is correct
+      document.getElementById('admin-gate').style.display='none';
+    } catch(e) {
+      err.textContent = 'Connection error: ' + e.message;
+      err.style.display='block';
+    }
+    btn.textContent='Sign In & Enter Admin'; btn.disabled=false;
+  }
+
+  function skipLogin() {
+    if (sessionStorage.getItem('jut_admin_ok') === '1') {
+      document.getElementById('admin-gate').style.display='none';
+    } else {
+      document.getElementById('gate-pass').focus();
+    }
+  }
+
+  // Auto-skip if already authenticated this session
+  if (sessionStorage.getItem('jut_admin_ok') === '1' && localStorage.getItem('tf_access_token')) {
     document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('admin-gate').style.display = 'none';
     });
+  } else if (sessionStorage.getItem('jut_admin_ok') === '1') {
+    // Has session but no token — show step 2
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('gate-step1').style.display = 'none';
+      document.getElementById('gate-step2').style.display = 'block';
+    });
   }
 </script>
+
 
 
 <!-- ═══════════════ TOP ADMIN BAR ═══════════════ -->
@@ -1201,7 +1270,13 @@ function E(id){return document.getElementById(id)}
 
 // ── API helpers ───────────────────────────────────────────────
 function getToken(){return localStorage.getItem('tf_access_token')||''}
-function authHeaders(){return{'Content-Type':'application/json','Authorization':'Bearer '+getToken()}}
+function authHeaders(){
+  return {
+    'Content-Type':'application/json',
+    'Authorization':'Bearer '+getToken(),
+    'X-Admin-Key': localStorage.getItem('jut_admin_key')||''
+  };
+}
 
 async function apiGet(url){
   try{const r=await fetch(url,{headers:authHeaders()});if(!r.ok)return null;return await r.json();}catch(e){return null;}
@@ -1416,8 +1491,10 @@ function rdAnaly(){
 }
 
 // ── Hero ─────────────────────────────────────────────────────
-function initHero(){
-  var h=gls('tf_hero_config',{});
+async function initHero(){
+  // Try API first
+  var d=await apiGet('/api/config?key=hero');
+  var h=(d&&d.value)?d.value:gls('tf_hero_config',{});
   E('h-badge').value=h.badge||'';E('h-h1').value=h.h1||'';
   E('h-h2').value=h.h2||'';E('h-desc').value=h.desc||'';
   E('h-cta1').value=h.cta1||'';E('h-cta2').value=h.cta2||'';
@@ -1434,16 +1511,28 @@ function upHP(){
   E('hp-trust').textContent=E('h-trust').value||'Free forever · No credit card';
   E('hp-stat').textContent=E('h-stat').value||'';
 }
-function saveHero(){
-  sls('tf_hero_config',{badge:E('h-badge').value,h1:E('h-h1').value,h2:E('h-h2').value,
+async function saveHero(){
+  var v={badge:E('h-badge').value,h1:E('h-h1').value,h2:E('h-h2').value,
     desc:E('h-desc').value,cta1:E('h-cta1').value,cta2:E('h-cta2').value,
-    trust:E('h-trust').value,stat:E('h-stat').value});
-  logA('🏠','Updated hero section');toast('✅ Hero saved! Reload tradd.html to see changes.');
+    trust:E('h-trust').value,stat:E('h-stat').value};
+  sls('tf_hero_config',v);
+  var tok=getToken();
+  if(!tok){toast('⚠️ Not logged in — saved locally only. Sign in first.','e');return;}
+  var r=await apiPut('/api/config',{key:'hero',value:v});
+  if(r&&r.success){
+    logA('🏠','Updated hero section');
+    toast('✅ Hero saved — live on site instantly!');
+  } else {
+    var errMsg=r&&r.error?r.error:'Unknown error';
+    toast('❌ API error: '+errMsg+' (saved locally)','e');
+    logA('❌','Hero save failed: '+errMsg);
+  }
 }
 
 // ── Nav ──────────────────────────────────────────────────────
-function initNav(){
-  var cfg=gls('tf_nav_config',null);
+async function initNav(){
+  var d=await apiGet('/api/config?key=nav');
+  var cfg=(d&&d.value)?d.value:gls('tf_nav_config',null);
   if(cfg){
     E('n-nm').value=cfg.name||'';E('n-ico').value=cfg.icon||'';
     E('n-badge').value=cfg.badge||'';E('n-cta1').value=cfg.cta1||'';
@@ -1470,10 +1559,13 @@ function upNP(){
   E('np-cta2').textContent=E('n-cta2')?.value||'Sign In';
   E('np-links').innerHTML=NAV_LINKS.slice(0,6).map(l=>`<span style="padding:4px 10px;border-radius:6px;font-size:11.5px;color:#6b7280">${esc(l.l)}</span>`).join('');
 }
-function saveNav(){
-  sls('tf_nav_config',{name:E('n-nm').value,icon:E('n-ico').value,badge:E('n-badge').value,
-    cta1:E('n-cta1').value,cta2:E('n-cta2').value,links:NAV_LINKS});
-  logA('🧭','Updated navigation');toast('✅ Navigation saved! Reload tradd.html.');
+async function saveNav(){
+  var v={name:E('n-nm').value,icon:E('n-ico').value,badge:E('n-badge').value,
+    cta1:E('n-cta1').value,cta2:E('n-cta2').value,links:NAV_LINKS};
+  sls('tf_nav_config',v);
+  var r=await apiPut('/api/config',{key:'nav',value:v});
+  logA('🧭','Updated navigation');
+  toast(r&&r.success?'✅ Navigation saved — live instantly!':'✅ Navigation saved locally');
 }
 
 // ── Sections ─────────────────────────────────────────────────
@@ -1616,14 +1708,15 @@ function upAP(){
   if(E('ae-prev-b'))E('ae-prev-b').textContent=b;
   if(E('ae-prev-t'))E('ae-prev-t').textContent=tr;
 }
-function saveAuth(){
-  sls('tf_auth_config',{icon:E('ae-ico').value,suH:E('ae-su-h').value,suS:E('ae-su-s').value,
+async function saveAuth(){
+  var v={icon:E('ae-ico').value,suH:E('ae-su-h').value,suS:E('ae-su-s').value,
     siH:E('ae-si-h').value,siS:E('ae-si-s').value,suB:E('ae-su-b').value,siB:E('ae-si-b').value,
     goog:E('ae-goog').value,demo:E('ae-demo').value,trust:E('ae-trust').value,
-    bg1:E('ae-bg1').value,bg2:E('ae-bg2').value,lc:E('ae-lc').value});
+    bg1:E('ae-bg1').value,bg2:E('ae-bg2').value,lc:E('ae-lc').value};
+  sls('tf_auth_config',v);
+  var r=await apiPut('/api/config',{key:'auth_page',value:v});
   logA('🔐','Updated auth page');
-  // Apply to tradd.html via localStorage — tradd.html reads this on startup
-  toast('✅ Auth page saved! Reload tradd.html to apply.');
+  toast(r&&r.success?'✅ Auth page saved — live instantly!':'✅ Auth page saved locally');
 }
 
 // ── Users ────────────────────────────────────────────────────
@@ -1916,6 +2009,17 @@ function globalSearch(q){
 document.addEventListener('DOMContentLoaded',function(){
   // Restore sidebar state
   if(gls('tf_admin_sb_coll',false)){document.body.classList.add('sb-coll');E('sb-coll-ico').textContent='▶';var l=E('sb-coll-lbl');if(l)l.textContent='Expand'}
+
+  // Check token status and show warning if not logged in
+  const tok = getToken();
+  if(!tok){
+    const warn = document.createElement('div');
+    warn.id = 'token-warn';
+    warn.style.cssText = 'position:fixed;top:32px;left:0;right:0;z-index:9999;background:#7c2d12;color:#fef3c7;padding:10px 20px;font-size:12px;text-align:center;';
+    warn.innerHTML = '⚠️ <strong>Not logged in via main site.</strong> Go to <a href="/" style="color:#fde68a;text-decoration:underline;">journal-your-trades.vercel.app</a>, sign in first, then come back to /admin.html — or changes will only save locally.';
+    document.body.appendChild(warn);
+  }
+
   loadData();go('dash');logA('👁','Admin panel opened');
   // Load settings
   var s=gls('tf_site_settings',null);

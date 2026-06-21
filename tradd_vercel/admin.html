@@ -1,38 +1,26 @@
-// api/auth/signin.js — POST /api/auth/signin
-const { supabase, supabaseAdmin } = require('../../lib/supabase');
+// lib/auth.js — JWT verification helper
+const { supabaseAdmin } = require('./supabase');
 
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+async function verifyToken(req) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) return null;
+  const token = auth.split(' ')[1];
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !user) return null;
+  return user;
 }
 
-module.exports = async (req, res) => {
-  cors(res);
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+function requireAuth(handler) {
+  return async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    if (req.method === 'OPTIONS') return res.status(200).end();
+    const user = await verifyToken(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    req.user = user;
+    return handler(req, res);
+  };
+}
 
-  const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-
-  try {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return res.status(401).json({ error: 'Invalid email or password' });
-
-    const { data: profile } = await supabaseAdmin
-      .from('profiles').select('*').eq('id', data.user.id).single();
-
-    return res.status(200).json({
-      token: data.session.access_token,
-      user: {
-        id: data.user.id, email: data.user.email,
-        name: profile?.name || data.user.user_metadata?.name || email.split('@')[0],
-        plan: profile?.plan || 'free',
-        role: profile?.role || 'user'
-      }
-    });
-  } catch (e) {
-    console.error('Signin error:', e);
-    return res.status(500).json({ error: 'Server error' });
-  }
-};
+module.exports = { verifyToken, requireAuth };

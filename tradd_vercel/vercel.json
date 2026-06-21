@@ -1,13 +1,62 @@
-{
-  "version": 2,
-  "outputDirectory": "public",
-  "functions": {
-    "api/**/*.js": {
-      "runtime": "@vercel/node@3.0.0"
-    }
-  },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
-}
+-- ═══════════════════════════════════════════════════════════
+--  Journal Your Trades — Migration 003: Fix Infinite Recursion
+--  Run this in Supabase SQL Editor AFTER 001 and 002
+--
+--  PROBLEM: Policies on "profiles" (and other tables) check
+--  `exists (select 1 from profiles where id = auth.uid() and role = 'admin')`
+--  But that subquery itself triggers the same RLS policy again,
+--  causing "infinite recursion detected in policy for relation profiles".
+--
+--  FIX: Use a SECURITY DEFINER function that bypasses RLS when
+--  checking the role, then have all policies call that function
+--  instead of querying profiles directly.
+-- ═══════════════════════════════════════════════════════════
+
+-- ── Helper function: checks admin role WITHOUT triggering RLS ──
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'admin'
+  );
+$$;
+
+-- ── Drop and recreate the recursive policies ──────────────
+
+-- profiles
+drop policy if exists "Admins can view all profiles" on public.profiles;
+create policy "Admins can view all profiles"
+  on public.profiles for select using (public.is_admin());
+
+-- trades
+drop policy if exists "Admins can view all trades" on public.trades;
+create policy "Admins can view all trades"
+  on public.trades for select using (public.is_admin());
+
+-- blog_posts
+drop policy if exists "Admins can manage posts" on public.blog_posts;
+create policy "Admins can manage posts"
+  on public.blog_posts for all using (public.is_admin());
+
+-- announcements
+drop policy if exists "Admins can manage announcements" on public.announcements;
+create policy "Admins can manage announcements"
+  on public.announcements for all using (public.is_admin());
+
+-- site_config (from migration 002)
+drop policy if exists "Admins can manage site config" on public.site_config;
+create policy "Admins can manage site config"
+  on public.site_config for all using (public.is_admin());
+
+-- feature_flags (from migration 002)
+drop policy if exists "Admins can manage feature flags" on public.feature_flags;
+create policy "Admins can manage feature flags"
+  on public.feature_flags for all using (public.is_admin());
+
+-- ── Done. The recursion is fixed because is_admin() runs with ──
+-- ── elevated privileges and does NOT re-trigger RLS checks.   ──

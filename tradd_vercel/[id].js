@@ -1,169 +1,165 @@
--- ═══════════════════════════════════════════════════════════
---  TradeFlow — Supabase Database Schema
---  Run this in Supabase Dashboard → SQL Editor
--- ═══════════════════════════════════════════════════════════
+# TradeFlow — Vercel + Supabase Deployment Guide
 
--- Enable UUID extension
-create extension if not exists "uuid-ossp";
+## 📁 Project Structure
 
--- ── Profiles ──────────────────────────────────────────────
-create table if not exists public.profiles (
-  id           uuid primary key references auth.users(id) on delete cascade,
-  email        text unique not null,
-  name         text,
-  avatar_url   text,
-  plan         text default 'free' check (plan in ('free','pro','team')),
-  role         text default 'user' check (role in ('user','admin')),
-  timezone     text default 'UTC',
-  default_currency text default 'USD',
-  preferred_market text default 'Stocks',
-  created_at   timestamptz default now(),
-  updated_at   timestamptz default now()
-);
+```
+tradd_vercel/
+├── api/                    ← Vercel serverless functions
+│   ├── health.js           ← GET /api/health
+│   ├── auth/
+│   │   ├── signup.js       ← POST /api/auth/signup
+│   │   ├── signin.js       ← POST /api/auth/signin
+│   │   └── me.js           ← GET /api/auth/me
+│   ├── trades/
+│   │   ├── index.js        ← GET + POST /api/trades
+│   │   └── [id].js         ← PUT + DELETE /api/trades/:id
+│   ├── blog/
+│   │   ├── index.js        ← GET + POST /api/blog
+│   │   └── [slug].js       ← GET /api/blog/:slug
+│   └── user/
+│       └── profile.js      ← GET + PUT /api/user/profile
+├── lib/
+│   ├── supabase.js         ← Supabase client
+│   └── auth.js             ← JWT verification
+├── public/
+│   ├── index.html          ← Main app (tradd.html)
+│   └── admin.html          ← Admin panel
+├── supabase/
+│   └── migrations/
+│       └── 001_initial.sql ← Database schema
+├── vercel.json             ← Vercel config
+├── package.json
+└── .env.example            ← Copy to .env.local
+```
 
-alter table public.profiles enable row level security;
+---
 
-create policy "Users can view own profile"
-  on public.profiles for select using (auth.uid() = id);
+## 🚀 Step-by-Step Deployment
 
-create policy "Users can update own profile"
-  on public.profiles for update using (auth.uid() = id);
+### Step 1 — Set up Supabase
 
--- Admins can view all profiles
-create policy "Admins can view all profiles"
-  on public.profiles for select using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
+1. Go to [supabase.com](https://supabase.com) → Create new project
+2. Wait for it to finish (takes ~2 min)
+3. Go to **SQL Editor** → paste the full contents of `supabase/migrations/001_initial.sql` → Run
+4. Go to **Settings → API** and copy:
+   - **Project URL** → `SUPABASE_URL`
+   - **anon public key** → `SUPABASE_ANON_KEY`
+   - **service_role secret key** → `SUPABASE_SERVICE_KEY`
+5. Go to **Authentication → Providers** → enable **Email** (already on by default)
+6. *(Optional)* To enable Google OAuth: Authentication → Providers → Google → add your Google OAuth credentials
 
--- ── Trades ────────────────────────────────────────────────
-create table if not exists public.trades (
-  id           text primary key default ('t_' || extract(epoch from now())::text),
-  user_id      uuid not null references public.profiles(id) on delete cascade,
-  symbol       text not null,
-  direction    text check (direction in ('Long','Short')),
-  entry        numeric,
-  exit         numeric,
-  qty          numeric,
-  pnl          numeric default 0,
-  date         date default current_date,
-  strategy     text,
-  setup        text,
-  tags         text[] default '{}',
-  notes        text,
-  emotions     text,
-  rating       int check (rating between 1 and 10),
-  mistakes     text[] default '{}',
-  screenshots  text[] default '{}',
-  created_at   timestamptz default now(),
-  updated_at   timestamptz default now()
-);
+---
 
-alter table public.trades enable row level security;
+### Step 2 — Deploy to Vercel
 
-create policy "Users can CRUD own trades"
-  on public.trades for all using (auth.uid() = user_id);
+#### Option A — Vercel CLI (recommended)
 
-create policy "Admins can view all trades"
-  on public.trades for select using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
+```bash
+# Install Vercel CLI
+npm install -g vercel
 
-create index trades_user_id_idx on public.trades(user_id);
-create index trades_date_idx on public.trades(date desc);
-create index trades_symbol_idx on public.trades(symbol);
+# Clone or unzip this project, then:
+cd tradd_vercel
+npm install
 
--- ── Blog Posts ────────────────────────────────────────────
-create table if not exists public.blog_posts (
-  id           uuid primary key default uuid_generate_v4(),
-  author_id    uuid references public.profiles(id) on delete set null,
-  title        text not null,
-  slug         text unique not null,
-  category     text default 'Strategy',
-  excerpt      text,
-  content      text,
-  cover_image  text,
-  read_time    text,
-  author       text default 'TradeFlow Team',
-  tags         text[] default '{}',
-  seo_title    text,
-  meta_desc    text,
-  published    boolean default true,
-  created_at   timestamptz default now(),
-  updated_at   timestamptz default now()
-);
+# Add your environment variables to Vercel
+vercel env add SUPABASE_URL
+vercel env add SUPABASE_ANON_KEY
+vercel env add SUPABASE_SERVICE_KEY
+vercel env add JWT_SECRET    # any random 32+ char string
 
-alter table public.blog_posts enable row level security;
+# Deploy
+vercel --prod
+```
 
-create policy "Anyone can read published posts"
-  on public.blog_posts for select using (published = true);
+#### Option B — Vercel Dashboard (no CLI)
 
-create policy "Admins can manage posts"
-  on public.blog_posts for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
+1. Go to [vercel.com](https://vercel.com) → New Project → Import Git Repository
+2. Push this folder to a GitHub repo first, then import it
+3. In Vercel project settings → **Environment Variables**, add:
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_KEY`
+   - `JWT_SECRET`
+4. Click **Deploy**
 
-create index blog_posts_slug_idx on public.blog_posts(slug);
-create index blog_posts_created_idx on public.blog_posts(created_at desc);
+---
 
--- ── User Goals ────────────────────────────────────────────
-create table if not exists public.user_goals (
-  id           uuid primary key default uuid_generate_v4(),
-  user_id      uuid not null references public.profiles(id) on delete cascade,
-  title        text not null,
-  target       numeric,
-  current_val  numeric default 0,
-  type         text default 'custom',
-  period       text default 'monthly',
-  created_at   timestamptz default now(),
-  updated_at   timestamptz default now()
-);
+### Step 3 — Make yourself Admin
 
-alter table public.user_goals enable row level security;
-create policy "Users can CRUD own goals" on public.user_goals for all using (auth.uid() = user_id);
+After your first sign up:
 
--- ── Playbook Rules ────────────────────────────────────────
-create table if not exists public.playbook_rules (
-  id           uuid primary key default uuid_generate_v4(),
-  user_id      uuid not null references public.profiles(id) on delete cascade,
-  title        text not null,
-  description  text,
-  category     text default 'Entry',
-  active       boolean default true,
-  created_at   timestamptz default now()
-);
+1. Go to Supabase Dashboard → **Table Editor** → `profiles`
+2. Find your row → click edit → change `role` from `user` to `admin`
+3. Now you can access `/admin.html` with full control
 
-alter table public.playbook_rules enable row level security;
-create policy "Users can CRUD own rules" on public.playbook_rules for all using (auth.uid() = user_id);
+Or run in SQL Editor:
+```sql
+UPDATE public.profiles SET role = 'admin' WHERE email = 'your@email.com';
+```
 
--- ── Announcements ─────────────────────────────────────────
-create table if not exists public.announcements (
-  id           uuid primary key default uuid_generate_v4(),
-  message      text not null,
-  type         text default 'info' check (type in ('info','success','warning','error')),
-  link         text,
-  expires_at   timestamptz,
-  active       boolean default true,
-  created_at   timestamptz default now()
-);
+---
 
-alter table public.announcements enable row level security;
-create policy "Anyone can read active announcements"
-  on public.announcements for select using (active = true);
-create policy "Admins can manage announcements"
-  on public.announcements for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
+### Step 4 — Test locally
 
--- ── Auto-update updated_at trigger ────────────────────────
-create or replace function update_updated_at()
-returns trigger as $$
-begin new.updated_at = now(); return new; end;
-$$ language plpgsql;
+```bash
+# Copy env file
+cp .env.example .env.local
+# Fill in your Supabase values in .env.local
 
-create trigger trg_profiles_updated_at   before update on public.profiles   for each row execute function update_updated_at();
-create trigger trg_trades_updated_at     before update on public.trades      for each row execute function update_updated_at();
-create trigger trg_blog_updated_at       before update on public.blog_posts  for each row execute function update_updated_at();
-create trigger trg_goals_updated_at      before update on public.user_goals  for each row execute function update_updated_at();
+# Run locally
+npm run dev
+# Opens at http://localhost:3000
+```
 
--- ── Seed: first admin user (update email after creation) ──
--- UPDATE public.profiles SET role = 'admin' WHERE email = 'your@email.com';
+---
+
+## 🔌 API Reference
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/health` | None | Health check |
+| POST | `/api/auth/signup` | None | Create account |
+| POST | `/api/auth/signin` | None | Login |
+| GET | `/api/auth/me` | Bearer | Get current user |
+| GET | `/api/trades` | Bearer | List user's trades |
+| POST | `/api/trades` | Bearer | Create/update trade |
+| PUT | `/api/trades/:id` | Bearer | Update a trade |
+| DELETE | `/api/trades/:id` | Bearer | Delete a trade |
+| GET | `/api/blog` | None | List published posts |
+| GET | `/api/blog/:slug` | None | Get single post |
+| POST | `/api/blog` | Admin | Create post |
+| GET | `/api/user/profile` | Bearer | Get profile |
+| PUT | `/api/user/profile` | Bearer | Update profile |
+
+---
+
+## 🗄️ Database Tables
+
+| Table | Purpose |
+|-------|---------|
+| `profiles` | User accounts (extends Supabase auth.users) |
+| `trades` | All trade entries |
+| `blog_posts` | Blog articles |
+| `user_goals` | Trading goals |
+| `playbook_rules` | Trading rules |
+| `announcements` | Site-wide banners |
+
+---
+
+## 🔒 Security Notes
+
+- **Service key** (`SUPABASE_SERVICE_KEY`) is only used server-side in API routes — never exposed to browser
+- **Row Level Security (RLS)** is enabled on all tables — users can only see their own data
+- **Admin role** is required to manage blog posts and view all users
+- All API routes validate the Supabase JWT before processing
+
+---
+
+## 🧩 How it connects
+
+The frontend (`public/index.html`) calls `/api/health` on load.
+- **If `/api/health` returns `ok: true`** → uses server API for auth + data (Supabase mode)
+- **If offline / no backend** → falls back to localStorage (demo mode)
+
+This means the app works both as a **standalone HTML file** (localStorage only) and as a **full Supabase-backed app** (when deployed to Vercel).

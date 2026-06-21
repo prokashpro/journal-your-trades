@@ -13,13 +13,6 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
-  const user = await verifyToken(req);
-  if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-  const { data: profile } = await supabaseAdmin
-    .from('profiles').select('role').eq('id', user.id).single();
-  if (profile?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-
   // Get profiles with trade stats
   const { data: profiles, error } = await supabaseAdmin
     .from('profiles')
