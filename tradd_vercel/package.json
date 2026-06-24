@@ -1,0 +1,28 @@
+-- Journal Your Trades — Migration 002
+-- Run AFTER 001_initial.sql
+
+CREATE TABLE IF NOT EXISTS public.site_config (
+  key          text primary key,
+  value        jsonb not null default '{}',
+  updated_at   timestamptz default now()
+);
+ALTER TABLE public.site_config ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read site config" ON public.site_config FOR SELECT USING (true);
+CREATE POLICY "Service role can write site config" ON public.site_config FOR ALL USING (true);
+
+CREATE TABLE IF NOT EXISTS public.feature_flags (
+  key          text primary key,
+  enabled      boolean default true,
+  updated_at   timestamptz default now()
+);
+ALTER TABLE public.feature_flags ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read feature flags" ON public.feature_flags FOR SELECT USING (true);
+CREATE POLICY "Service role can write feature flags" ON public.feature_flags FOR ALL USING (true);
+
+INSERT INTO public.site_config (key, value) VALUES
+  ('hero', '{"h1":"The market is the teacher.","h2":"Your journal is the textbook.","badge":"AI-Powered Trading Journal","desc":"","cta1":"Start for Free","cta2":"Live Demo"}'),
+  ('nav', '{"name":"Journal Your Trades","cta1":"Sign In","cta2":"Get Started Free"}'),
+  ('seo', '{"title":"Journal Your Trades — AI Trading Journal","desc":"The AI-powered trading journal that finds your blind spots."}'),
+  ('theme', '{"accent":"#6366f1","accent2":"#8b5cf6"}'),
+  ('auth_page', '{"suH":"The market is the teacher.","suS":"Your journal is the textbook."}')
+ON CONFLICT (key) DO NOTHING;
