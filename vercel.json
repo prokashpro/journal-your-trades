@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "tradd_vercel/public/index.html", "use": "@vercel/static" },
+    { "src": "tradd_vercel/public/admin.html", "use": "@vercel/static" },
+    { "src": "tradd_vercel/api/**/*.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "tradd_vercel/api/$1" },
+    { "src": "/admin.html", "dest": "tradd_vercel/public/admin.html" },
+    { "src": "/admin", "dest": "tradd_vercel/public/admin.html" },
+    { "src": "/(.*)", "dest": "tradd_vercel/public/index.html" }
+  ]
+}
